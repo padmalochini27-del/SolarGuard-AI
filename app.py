@@ -22,122 +22,76 @@ st.set_page_config(
 # CUSTOM CSS
 # =========================================================
 
-st.markdown("""
-<style>
+st.markdown(
+    """
+    <style>
 
-    /* Main background */
-    .stApp {
-        background: linear-gradient(
-            135deg,
-            #07111f 0%,
-            #0b1f35 50%,
-            #06101c 100%
-        );
-        color: #f5f7fa;
-    }
+        .stApp {
+            background: linear-gradient(
+                135deg,
+                #07111f 0%,
+                #0b1f35 50%,
+                #06101c 100%
+            );
+            color: #f5f7fa;
+        }
 
-    /* Main content width */
-    .block-container {
-        max-width: 900px;
-        padding-top: 2rem;
-        padding-bottom: 3rem;
-    }
+        .block-container {
+            max-width: 900px;
+            padding-top: 2rem;
+            padding-bottom: 3rem;
+        }
 
-    /* Main title */
-    .main-title {
-        text-align: center;
-        font-size: 42px;
-        font-weight: 700;
-        margin-bottom: 5px;
-        color: #ffffff;
-    }
+        .main-title {
+            text-align: center;
+            font-size: 42px;
+            font-weight: 700;
+            margin-bottom: 5px;
+            color: #ffffff;
+        }
 
-    /* Subtitle */
-    .main-subtitle {
-        text-align: center;
-        font-size: 19px;
-        color: #9fb6cc;
-        margin-bottom: 25px;
-    }
+        .main-subtitle {
+            text-align: center;
+            font-size: 19px;
+            color: #9fb6cc;
+            margin-bottom: 25px;
+        }
 
-    /* Description */
-    .description {
-        text-align: center;
-        font-size: 16px;
-        color: #c7d4e2;
-        margin-bottom: 30px;
-    }
+        .description {
+            text-align: center;
+            font-size: 16px;
+            color: #c7d4e2;
+            margin-bottom: 30px;
+        }
 
-    /* Section headings */
-    .section-title {
-        font-size: 22px;
-        font-weight: 600;
-        color: #ffffff;
-        margin-top: 30px;
-        margin-bottom: 15px;
-    }
+        .section-title {
+            font-size: 22px;
+            font-weight: 600;
+            color: #ffffff;
+            margin-top: 30px;
+            margin-bottom: 15px;
+        }
 
-    /* Result cards */
-    .result-card {
-        background: rgba(20, 43, 68, 0.75);
-        border: 1px solid rgba(120, 170, 210, 0.25);
-        border-radius: 15px;
-        padding: 20px;
-        text-align: center;
-        min-height: 120px;
-    }
+        .footer {
+            text-align: center;
+            color: #71879b;
+            font-size: 13px;
+            margin-top: 40px;
+        }
 
-    .result-label {
-        color: #9fb6cc;
-        font-size: 14px;
-        margin-bottom: 8px;
-    }
-
-    .result-value {
-        color: #ffffff;
-        font-size: 20px;
-        font-weight: 600;
-    }
-
-    /* Processing cards */
-    .processing-card {
-        background: rgba(20, 43, 68, 0.65);
-        border: 1px solid rgba(120, 170, 210, 0.20);
-        border-radius: 12px;
-        padding: 15px;
-        text-align: center;
-    }
-
-    .processing-label {
-        color: #8fa8bd;
-        font-size: 13px;
-    }
-
-    .processing-value {
-        color: #ffffff;
-        font-size: 17px;
-        font-weight: 600;
-        margin-top: 5px;
-    }
-
-    /* Footer */
-    .footer {
-        text-align: center;
-        color: #71879b;
-        font-size: 13px;
-        margin-top: 40px;
-    }
-
-</style>
-""", unsafe_allow_html=True)
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 
 # =========================================================
-# LOAD TRAINED MODEL
+# LOAD SOLARGUARD MODEL
 # =========================================================
 
 @st.cache_resource
 def load_model():
+
     return tf.keras.models.load_model(
         "model/SolarGuard_AI_Final.keras"
     )
@@ -147,28 +101,136 @@ model = load_model()
 
 
 # =========================================================
-# GRAD-CAM
+# LOAD EL IMAGE VALIDATOR
 # =========================================================
 
-def generate_gradcam(model, image_array, predicted_class):
+@st.cache_resource
+def load_el_validator():
 
-    # Your MobileNetV2 base model
+    return tf.keras.models.load_model(
+        "model/EL_Image_Validator.keras"
+    )
+
+
+el_validator = load_el_validator()
+
+
+# =========================================================
+# EL IMAGE VALIDATION
+# =========================================================
+
+def validate_el_image(original_image):
+
+    """
+    Trained binary EL-vs-Non-EL validation model.
+
+    The validator was trained to distinguish:
+        1. Solar-cell EL images
+        2. Non-EL images
+
+    Output:
+        EL probability
+        Non-EL probability
+        predicted class
+    """
+
+    # -----------------------------------------------------
+    # Validator preprocessing
+    #
+    # The validator was trained using RGB images.
+    # -----------------------------------------------------
+
+    image = original_image.convert("RGB")
+
+    image = image.resize(
+        (224, 224)
+    )
+
+    image_array = np.array(
+        image,
+        dtype=np.float32
+    )
+
+    image_array = preprocess_input(
+        image_array
+    )
+
+    image_array = np.expand_dims(
+        image_array,
+        axis=0
+    )
+
+    # -----------------------------------------------------
+    # Prediction
+    # -----------------------------------------------------
+
+    prediction = el_validator.predict(
+        image_array,
+        verbose=0
+    )
+
+    el_probability = float(
+        prediction[0][0]
+    )
+
+    non_el_probability = (
+        1.0 - el_probability
+    )
+
+    # -----------------------------------------------------
+    # Decision threshold
+    #
+    # 0.50 is the prototype decision threshold.
+    # -----------------------------------------------------
+
+    if el_probability >= 0.50:
+
+        is_el = True
+
+    else:
+
+        is_el = False
+
+    return {
+        "is_el": is_el,
+        "el_probability": el_probability,
+        "non_el_probability": non_el_probability
+    }
+
+
+# =========================================================
+# STANDARD GRAD-CAM
+# =========================================================
+
+def generate_gradcam(
+    model,
+    image_array,
+    predicted_class
+):
+
     base_model = model.layers[1]
 
-    # Find the last Conv2D layer inside MobileNetV2
     last_conv_layer = None
 
-    for layer in reversed(base_model.layers):
-        if isinstance(layer, tf.keras.layers.Conv2D):
+    for layer in reversed(
+        base_model.layers
+    ):
+
+        if isinstance(
+            layer,
+            tf.keras.layers.Conv2D
+        ):
+
             last_conv_layer = layer
+
             break
 
     if last_conv_layer is None:
-        raise ValueError("Could not find a convolutional layer.")
 
-    # Model that gives us:
-    # 1. feature maps from the last convolutional layer
-    # 2. final MobileNetV2 output
+        raise ValueError(
+            "Could not find a convolutional layer."
+        )
+
     feature_model = tf.keras.models.Model(
         inputs=base_model.input,
         outputs=[
@@ -179,92 +241,232 @@ def generate_gradcam(model, image_array, predicted_class):
 
     with tf.GradientTape() as tape:
 
-        conv_outputs, base_output = feature_model(
-            image_array,
-            training=False
+        conv_outputs, base_output = (
+            feature_model(
+                image_array,
+                training=False
+            )
         )
 
-        # Pass MobileNetV2 output through the classifier layers
         x = base_output
 
         for layer in model.layers[2:]:
-            x = layer(x, training=False)
+
+            x = layer(
+                x,
+                training=False
+            )
 
         predictions = x
 
-        class_output = predictions[:, predicted_class]
+        class_output = predictions[
+            :,
+            predicted_class
+        ]
 
-    # Calculate gradients
     gradients = tape.gradient(
         class_output,
         conv_outputs
     )
 
-    # Average gradients across spatial dimensions
+    if gradients is None:
+
+        raise ValueError(
+            "Gradients could not be calculated."
+        )
+
     pooled_gradients = tf.reduce_mean(
         gradients,
         axis=(1, 2)
     )
 
-    # Remove batch dimension
     conv_outputs = conv_outputs[0]
+
     pooled_gradients = pooled_gradients[0]
 
-    # Weight feature maps by their gradients
     heatmap = tf.reduce_sum(
         conv_outputs * pooled_gradients,
         axis=-1
     )
 
-    # Keep only positive values
     heatmap = tf.maximum(
         heatmap,
         0
     )
 
-    # Normalize between 0 and 1
-    max_value = tf.reduce_max(heatmap)
+    max_value = tf.reduce_max(
+        heatmap
+    )
 
-    if max_value > 0:
-        heatmap /= max_value
+    if float(max_value) > 0:
+
+        heatmap = (
+            heatmap / max_value
+        )
 
     return heatmap.numpy()
 
 
-def create_gradcam_overlay(original_image, heatmap):
+# =========================================================
+# GRAD-CAM++-STYLE EXPLANATION
+# =========================================================
+
+def generate_gradcam_plus_plus(
+    model,
+    image_array,
+    predicted_class
+):
+
     """
-    Overlay the Grad-CAM heatmap on the original EL image.
+    Grad-CAM++-style positive-gradient explanation.
+
+    This implementation provides an AI attention
+    visualization for the predicted class.
+
+    It should be described as a Grad-CAM++-style
+    explanation rather than an exact higher-order
+    derivative Grad-CAM++ implementation.
     """
 
-    # Convert PIL image to RGB
+    base_model = model.layers[1]
+
+    last_conv_layer = None
+
+    for layer in reversed(
+        base_model.layers
+    ):
+
+        if isinstance(
+            layer,
+            tf.keras.layers.Conv2D
+        ):
+
+            last_conv_layer = layer
+
+            break
+
+    if last_conv_layer is None:
+
+        raise ValueError(
+            "Could not find a convolutional layer."
+        )
+
+    feature_model = tf.keras.models.Model(
+        inputs=base_model.input,
+        outputs=[
+            last_conv_layer.output,
+            base_model.output
+        ]
+    )
+
+    with tf.GradientTape() as tape:
+
+        conv_outputs, base_output = (
+            feature_model(
+                image_array,
+                training=False
+            )
+        )
+
+        x = base_output
+
+        for layer in model.layers[2:]:
+
+            x = layer(
+                x,
+                training=False
+            )
+
+        predictions = x
+
+        class_score = predictions[
+            :,
+            predicted_class
+        ]
+
+    gradients = tape.gradient(
+        class_score,
+        conv_outputs
+    )
+
+    if gradients is None:
+
+        raise ValueError(
+            "Gradients could not be calculated."
+        )
+
+    activations = conv_outputs[0]
+
+    gradients = gradients[0]
+
+    positive_gradients = tf.maximum(
+        gradients,
+        0
+    )
+
+    weights = tf.reduce_mean(
+        positive_gradients,
+        axis=(0, 1)
+    )
+
+    heatmap = tf.reduce_sum(
+        activations * weights,
+        axis=-1
+    )
+
+    heatmap = tf.maximum(
+        heatmap,
+        0
+    )
+
+    max_value = tf.reduce_max(
+        heatmap
+    )
+
+    if float(max_value) > 0:
+
+        heatmap = (
+            heatmap / max_value
+        )
+
+    return heatmap.numpy()
+
+
+# =========================================================
+# CREATE HEATMAP OVERLAY
+# =========================================================
+
+def create_gradcam_overlay(
+    original_image,
+    heatmap
+):
+
     original = np.array(
         original_image.convert("RGB")
     )
 
-    # Resize heatmap to original image size
     heatmap = cv2.resize(
         heatmap,
-        (original.shape[1], original.shape[0])
+        (
+            original.shape[1],
+            original.shape[0]
+        )
     )
 
-    # Convert heatmap to 0-255
     heatmap = np.uint8(
         255 * heatmap
     )
 
-    # Apply color map
     heatmap = cv2.applyColorMap(
         heatmap,
         cv2.COLORMAP_JET
     )
 
-    # Convert BGR → RGB
     heatmap = cv2.cvtColor(
         heatmap,
         cv2.COLOR_BGR2RGB
     )
 
-    # Blend original image and heatmap
     overlay = cv2.addWeighted(
         original,
         0.55,
@@ -277,14 +479,207 @@ def create_gradcam_overlay(original_image, heatmap):
 
 
 # =========================================================
+# SUSPICIOUS REGION LOCALIZATION
+# =========================================================
+
+def localize_suspicious_region(
+    original_image,
+    heatmap
+):
+
+    original = np.array(
+        original_image.convert("RGB")
+    )
+
+    height, width = original.shape[:2]
+
+    resized_heatmap = cv2.resize(
+        heatmap,
+        (width, height)
+    )
+
+    # -----------------------------------------------------
+    # HEATMAP THRESHOLD
+    # -----------------------------------------------------
+
+    threshold = 0.60
+
+    binary_map = (
+        resized_heatmap >= threshold
+    ).astype(np.uint8) * 255
+
+    # -----------------------------------------------------
+    # REMOVE SMALL NOISY REGIONS
+    # -----------------------------------------------------
+
+    kernel = np.ones(
+        (7, 7),
+        np.uint8
+    )
+
+    binary_map = cv2.morphologyEx(
+        binary_map,
+        cv2.MORPH_OPEN,
+        kernel
+    )
+
+    binary_map = cv2.morphologyEx(
+        binary_map,
+        cv2.MORPH_CLOSE,
+        kernel
+    )
+
+    # -----------------------------------------------------
+    # FIND CONNECTED REGIONS
+    # -----------------------------------------------------
+
+    contours, _ = cv2.findContours(
+        binary_map,
+        cv2.RETR_EXTERNAL,
+        cv2.CHAIN_APPROX_SIMPLE
+    )
+
+    if not contours:
+
+        return (
+            original,
+            None,
+            0.0,
+            "No strong region detected"
+        )
+
+    # -----------------------------------------------------
+    # SELECT LARGEST REGION
+    # -----------------------------------------------------
+
+    largest_contour = max(
+        contours,
+        key=cv2.contourArea
+    )
+
+    x, y, w, h = cv2.boundingRect(
+        largest_contour
+    )
+
+    # -----------------------------------------------------
+    # RELATIVE AREA
+    # -----------------------------------------------------
+
+    image_area = (
+        width * height
+    )
+
+    region_area = (
+        w * h
+    )
+
+    relative_area = (
+        region_area / image_area
+    ) * 100
+
+    # -----------------------------------------------------
+    # APPROXIMATE LOCATION
+    # -----------------------------------------------------
+
+    center_x = x + (w / 2)
+
+    center_y = y + (h / 2)
+
+    if center_x < width / 3:
+
+        horizontal = "left"
+
+    elif center_x < (
+        2 * width / 3
+    ):
+
+        horizontal = "center"
+
+    else:
+
+        horizontal = "right"
+
+    if center_y < height / 3:
+
+        vertical = "upper"
+
+    elif center_y < (
+        2 * height / 3
+    ):
+
+        vertical = "middle"
+
+    else:
+
+        vertical = "lower"
+
+    if (
+        vertical == "middle"
+        and horizontal == "center"
+    ):
+
+        location = (
+            "central region"
+        )
+
+    else:
+
+        location = (
+            f"{vertical}-{horizontal} region"
+        )
+
+    # -----------------------------------------------------
+    # DRAW REGION
+    # -----------------------------------------------------
+
+    localized_image = (
+        original.copy()
+    )
+
+    cv2.rectangle(
+        localized_image,
+        (x, y),
+        (x + w, y + h),
+        (255, 0, 0),
+        4
+    )
+
+    cv2.putText(
+        localized_image,
+        "Suspicious Region",
+        (
+            x,
+            max(y - 10, 25)
+        ),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.8,
+        (255, 0, 0),
+        2,
+        cv2.LINE_AA
+    )
+
+    return (
+        localized_image,
+        (x, y, w, h),
+        relative_area,
+        location
+    )
+
+
+# =========================================================
 # CLASS NAMES
 # =========================================================
 
 class_names = [
+
     "Normal",
+
     "Low Defect Confidence",
+
     "Moderate Defect Confidence",
+
     "High Defect Confidence"
+
 ]
 
 
@@ -293,103 +688,233 @@ class_names = [
 # =========================================================
 
 st.markdown(
-    '<div class="main-title">☀️ SolarGuard AI</div>',
+    '<div class="main-title">'
+    '☀️ SolarGuard AI'
+    '</div>',
     unsafe_allow_html=True
 )
 
 st.markdown(
-    '<div class="main-subtitle">Solar Cell Defect Inspection System</div>',
+    '<div class="main-subtitle">'
+    'Explainable AI-Assisted Solar EL Inspection'
+    '</div>',
     unsafe_allow_html=True
 )
 
 st.markdown(
     '<div class="description">'
-    'Upload an electroluminescence (EL) image of a solar cell '
-    'to analyze its defect-probability class.'
+    'Upload an electroluminescence (EL) image of a '
+    'solar cell to analyze its defect-probability '
+    'assessment.'
     '</div>',
     unsafe_allow_html=True
 )
 
 
 # =========================================================
-# IMAGE UPLOAD
+# IMAGE UPLOADER
 # =========================================================
 
 uploaded_file = st.file_uploader(
     "📤 Upload a solar cell EL image",
-    type=["jpg", "jpeg", "png"]
+    type=[
+        "jpg",
+        "jpeg",
+        "png"
+    ]
 )
 
 
 # =========================================================
-# PREDICTION
+# MAIN ANALYSIS
 # =========================================================
 
 if uploaded_file is not None:
 
-    # -----------------------------------------------------
+    # =====================================================
     # OPEN IMAGE
-    # -----------------------------------------------------
+    # =====================================================
 
-    image = Image.open(
+    original_image = Image.open(
         uploaded_file
     ).convert("L")
 
 
-    # -----------------------------------------------------
-    # DISPLAY IMAGE
-    # -----------------------------------------------------
+    # =====================================================
+    # EL IMAGE VALIDATION
+    # =====================================================
+
+    validation = validate_el_image(
+        original_image
+    )
+
+
+    # =====================================================
+    # EL IMAGE VALIDATION RESULT
+    # =====================================================
+
+    st.markdown(
+        '<div class="section-title">'
+        '🛡️ EL Image Validation'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+
+        st.metric(
+            label="EL Probability",
+            value=f"{validation['el_probability'] * 100:.2f}%"
+        )
+
+    with col2:
+
+        st.metric(
+            label="Non-EL Probability",
+            value=f"{validation['non_el_probability'] * 100:.2f}%"
+        )
+
+    with col3:
+
+        if validation["is_el"]:
+
+            validation_status = "EL IMAGE"
+
+        else:
+
+            validation_status = "NON-EL"
+
+        st.metric(
+            label="Validation",
+            value=validation_status
+        )
+
+
+    # =====================================================
+    # NON-EL IMAGE
+    # =====================================================
+
+    if not validation["is_el"]:
+
+        st.error(
+            "❌ This image was not recognized as a "
+            "solar-cell electroluminescence image."
+        )
+
+        st.warning(
+            "SolarGuard AI has stopped the analysis "
+            "to avoid applying the defect classifier "
+            "to an unsupported image."
+        )
+
+        st.markdown(
+            '<div class="section-title">'
+            '🖼️ Uploaded Image'
+            '</div>',
+            unsafe_allow_html=True
+        )
+
+        st.image(
+            original_image,
+            caption="Rejected Non-EL Image",
+            use_container_width=True
+        )
+
+        st.caption(
+            "The EL validator is a prototype binary "
+            "classifier trained using ELPV EL images "
+            "and a collection of unrelated Non-EL images. "
+            "Its 0.50 decision threshold is a prototype "
+            "threshold and is not a calibrated probability "
+            "of image authenticity."
+        )
+
+        st.stop()
+
+
+    # =====================================================
+    # EL IMAGE ACCEPTED
+    # =====================================================
+
+    st.success(
+        "✅ Image recognized as a solar-cell EL image. "
+        "Proceeding with SolarGuard analysis."
+    )
+
+
+    # =====================================================
+    # DISPLAY ORIGINAL IMAGE
+    # =====================================================
+
+    st.markdown(
+        '<div class="section-title">'
+        '🖼️ Input Image'
+        '</div>',
+        unsafe_allow_html=True
+    )
 
     st.image(
-        image,
-        caption="Uploaded EL Image",
+        original_image,
+        caption="Validated EL Image",
         use_container_width=True
     )
 
 
-    # -----------------------------------------------------
-    # PREPROCESSING
-    # -----------------------------------------------------
+    # =====================================================
+    # PREPROCESS IMAGE FOR SOLARGUARD
+    # =====================================================
 
-    # Resize image
-    image = image.resize(
+    image = original_image.resize(
         (224, 224)
     )
 
-    # Convert image to NumPy array
     image_array = np.array(
         image,
         dtype=np.float32
     )
 
-    # Add grayscale channel
+    # -----------------------------------------------------
+    # Grayscale channel
+    # -----------------------------------------------------
+
     image_array = np.expand_dims(
         image_array,
         axis=-1
     )
 
-    # Convert grayscale to RGB
+    # -----------------------------------------------------
+    # Grayscale → RGB
+    # -----------------------------------------------------
+
     image_array = np.repeat(
         image_array,
         3,
         axis=-1
     )
 
+    # -----------------------------------------------------
     # MobileNetV2 preprocessing
+    # -----------------------------------------------------
+
     image_array = preprocess_input(
         image_array
     )
 
-    # Add batch dimension
+    # -----------------------------------------------------
+    # Batch dimension
+    # -----------------------------------------------------
+
     image_array = np.expand_dims(
         image_array,
         axis=0
     )
 
 
-    # -----------------------------------------------------
-    # MODEL PREDICTION
-    # -----------------------------------------------------
+    # =====================================================
+    # SOLARGUARD MODEL PREDICTION
+    # =====================================================
 
     predictions = model.predict(
         image_array,
@@ -397,34 +922,177 @@ if uploaded_file is not None:
     )
 
     predicted_class = int(
-        np.argmax(predictions[0])
+        np.argmax(
+            predictions[0]
+        )
     )
 
     confidence = (
-        float(predictions[0][predicted_class]) * 100
+        float(
+            predictions[0][
+                predicted_class
+            ]
+        ) * 100
     )
 
-        # =====================================================
-    # GRAD-CAM EXPLANATION
+
+    # =====================================================
+    # UNCERTAINTY ANALYSIS
     # =====================================================
 
+    sorted_probabilities = np.sort(
+        predictions[0]
+    )[::-1]
+
+    top_probability = float(
+        sorted_probabilities[0]
+    )
+
+    second_probability = float(
+        sorted_probabilities[1]
+    )
+
+    prediction_margin = (
+        top_probability
+        - second_probability
+    ) * 100
+
+
+    if prediction_margin >= 30:
+
+        uncertainty_level = (
+            "Low Uncertainty"
+        )
+
+        uncertainty_message = (
+            "The model shows a clear separation "
+            "between its top prediction and the "
+            "next most likely class."
+        )
+
+    elif prediction_margin >= 15:
+
+        uncertainty_level = (
+            "Moderate Uncertainty"
+        )
+
+        uncertainty_message = (
+            "The model shows some overlap between "
+            "its top predictions. Human review "
+            "may be useful."
+        )
+
+    else:
+
+        uncertainty_level = (
+            "High Uncertainty"
+        )
+
+        uncertainty_message = (
+            "The top predictions are close to "
+            "each other. Manual verification "
+            "is recommended."
+        )
+
+
+    # =====================================================
+    # INSPECTION PRIORITY
+    # =====================================================
+
+    if (
+        predicted_class == 0
+        and uncertainty_level
+        == "Low Uncertainty"
+    ):
+
+        inspection_priority = "LOW"
+
+        priority_message = (
+            "No strong defect-probability evidence "
+            "was identified. Routine inspection "
+            "is appropriate."
+        )
+
+    elif uncertainty_level == (
+        "High Uncertainty"
+    ):
+
+        inspection_priority = "REVIEW"
+
+        priority_message = (
+            "The prediction is uncertain. Manual "
+            "verification is recommended before "
+            "making an inspection decision."
+        )
+
+    elif predicted_class in [2, 3]:
+
+        inspection_priority = "HIGH"
+
+        priority_message = (
+            "The model indicates a moderate or high "
+            "defect-probability assessment. Prioritize "
+            "this image for further inspection."
+        )
+
+    else:
+
+        inspection_priority = "REVIEW"
+
+        priority_message = (
+            "The result indicates some "
+            "defect-probability evidence. "
+            "Further inspection may be useful."
+        )
+
+
+    # =====================================================
+    # GRAD-CAM++-STYLE + LOCALIZATION
+    # =====================================================
+
+    heatmap = None
+
+    gradcam_image = None
+
+    localized_image = None
+
+    region_box = None
+
+    relative_area = 0.0
+
+    region_location = None
+
+
     try:
-        heatmap = generate_gradcam(
+
+        heatmap = generate_gradcam_plus_plus(
             model,
             image_array,
             predicted_class
         )
 
-        gradcam_image = create_gradcam_overlay(
-            image,
+        gradcam_image = (
+            create_gradcam_overlay(
+                original_image,
+                heatmap
+            )
+        )
+
+        (
+            localized_image,
+            region_box,
+            relative_area,
+            region_location
+        ) = localize_suspicious_region(
+            original_image,
             heatmap
         )
 
     except Exception as e:
-        heatmap = None
-        gradcam_image = None
+
         st.warning(
-            f"Grad-CAM explanation could not be generated: {e}"
+            "Explainability/localization could not "
+            f"be generated: {e}"
         )
 
 
@@ -433,46 +1101,35 @@ if uploaded_file is not None:
     # =====================================================
 
     st.markdown(
-        '<div class="section-title">🔍 Inspection Result</div>',
+        '<div class="section-title">'
+        '🔍 Inspection Result'
+        '</div>',
         unsafe_allow_html=True
     )
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
-
-    # Prediction card
     with col1:
 
-        st.markdown(
-            f"""
-            <div class="result-card">
-                <div class="result-label">
-                    Prediction
-                </div>
-                <div class="result-value">
-                    {class_names[predicted_class]}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
+        st.metric(
+            label="Prediction",
+            value=class_names[
+                predicted_class
+            ]
         )
 
-
-    # Confidence card
     with col2:
 
-        st.markdown(
-            f"""
-            <div class="result-card">
-                <div class="result-label">
-                    Model Confidence
-                </div>
-                <div class="result-value">
-                    {confidence:.2f}%
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
+        st.metric(
+            label="Model Confidence",
+            value=f"{confidence:.2f}%"
+        )
+
+    with col3:
+
+        st.metric(
+            label="Prediction Uncertainty",
+            value=uncertainty_level
         )
 
 
@@ -481,7 +1138,9 @@ if uploaded_file is not None:
     # =====================================================
 
     st.markdown(
-        '<div class="section-title">💡 Interpretation</div>',
+        '<div class="section-title">'
+        '💡 Interpretation'
+        '</div>',
         unsafe_allow_html=True
     )
 
@@ -489,8 +1148,8 @@ if uploaded_file is not None:
     if predicted_class == 0:
 
         st.info(
-            "The model identifies this image as having a "
-            "normal defect-probability assessment."
+            "The model identifies this image as having "
+            "a normal defect-probability assessment."
         )
 
     elif predicted_class == 1:
@@ -503,16 +1162,45 @@ if uploaded_file is not None:
     elif predicted_class == 2:
 
         st.warning(
-            "The model identifies a moderate defect-probability "
-            "assessment. Further inspection is recommended."
+            "The model identifies a moderate "
+            "defect-probability assessment. Further "
+            "inspection is recommended."
         )
 
     else:
 
         st.error(
-            "The model identifies a high defect-probability "
-            "assessment. Further inspection is recommended."
+            "The model identifies a high "
+            "defect-probability assessment. Further "
+            "inspection is recommended."
         )
+
+
+    # =====================================================
+    # PREDICTION CERTAINTY
+    # =====================================================
+
+    st.markdown(
+        '<div class="section-title">'
+        '⚠️ Prediction Certainty'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
+    st.write(
+        f"**Top-two prediction margin:** "
+        f"{prediction_margin:.2f} percentage points"
+    )
+
+    st.info(
+        uncertainty_message
+    )
+
+    st.caption(
+        "Prediction uncertainty is estimated using "
+        "a prototype top-two probability margin. "
+        "It is not a calibrated uncertainty estimate."
+    )
 
 
     # =====================================================
@@ -520,45 +1208,168 @@ if uploaded_file is not None:
     # =====================================================
 
     st.markdown(
-        '<div class="section-title">📊 Class Probabilities</div>',
+        '<div class="section-title">'
+        '📊 Class Probabilities'
+        '</div>',
         unsafe_allow_html=True
     )
 
 
-    for i, class_name in enumerate(class_names):
+    for i, class_name in enumerate(
+        class_names
+    ):
 
         probability = (
-            float(predictions[0][i]) * 100
+            float(
+                predictions[0][i]
+            ) * 100
         )
 
         st.write(
-            f"**{class_name}** — {probability:.2f}%"
+            f"**{class_name}** — "
+            f"{probability:.2f}%"
         )
 
         st.progress(
-            float(predictions[0][i])
+            float(
+                predictions[0][i]
+            )
         )
-        # =====================================================
-    # GRAD-CAM EXPLANATION
+
+
+    # =====================================================
+    # INSPECTION PRIORITY
+    # =====================================================
+
+    st.markdown(
+        '<div class="section-title">'
+        '🎯 Inspection Priority'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
+
+    if inspection_priority == "HIGH":
+
+        st.error(
+            f"🔴 HIGH PRIORITY\n\n"
+            f"{priority_message}"
+        )
+
+    elif inspection_priority == "REVIEW":
+
+        st.warning(
+            f"🟡 REVIEW REQUIRED\n\n"
+            f"{priority_message}"
+        )
+
+    else:
+
+        st.success(
+            f"🟢 LOW PRIORITY\n\n"
+            f"{priority_message}"
+        )
+
+
+    st.caption(
+        "Inspection priority is a prototype "
+        "decision-support indicator based on the "
+        "model's prediction and uncertainty. It is "
+        "not a direct measurement of physical "
+        "failure risk."
+    )
+
+
+    # =====================================================
+    # GRAD-CAM++-STYLE EXPLANATION
     # =====================================================
 
     if gradcam_image is not None:
 
         st.markdown(
-            '<div class="section-title">🔎 Grad-CAM Explanation</div>',
+            '<div class="section-title">'
+            '🔎 Grad-CAM++-Style Explanation'
+            '</div>',
             unsafe_allow_html=True
         )
 
         st.write(
-            "The highlighted regions show areas of the EL image "
-            "that contributed more strongly to the model's prediction."
+            "The highlighted regions show areas of "
+            "the EL image that contributed more "
+            "strongly to the model's prediction."
         )
 
         st.image(
             gradcam_image,
-            caption="Grad-CAM: Model attention visualization",
+            caption=(
+                "Grad-CAM++-style model attention "
+                "visualization"
+            ),
             use_container_width=True
         )
+
+
+    # =====================================================
+    # SUSPICIOUS REGION LOCALIZATION
+    # =====================================================
+
+    if localized_image is not None:
+
+        st.markdown(
+            '<div class="section-title">'
+            '🎯 Suspicious Region Localization'
+            '</div>',
+            unsafe_allow_html=True
+        )
+
+        st.write(
+            "The highlighted box identifies the strongest "
+            "high-activation region in the explanation "
+            "heatmap. This is an AI-assisted localization "
+            "indicator, not a confirmed physical defect "
+            "boundary."
+        )
+
+        st.image(
+            localized_image,
+            caption=(
+                "AI-assisted suspicious-region localization"
+            ),
+            use_container_width=True
+        )
+
+        if region_box is not None:
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+
+                st.metric(
+                    label="Region Detected",
+                    value="Yes"
+                )
+
+            with col2:
+
+                st.metric(
+                    label="Relative Area",
+                    value=f"{relative_area:.2f}%"
+                )
+
+            with col3:
+
+                st.metric(
+                    label="Approx. Location",
+                    value=region_location
+                )
+
+        else:
+
+            st.info(
+                "No strong high-activation region was "
+                "detected using the current localization "
+                "threshold."
+            )
 
 
     # =====================================================
@@ -566,94 +1377,72 @@ if uploaded_file is not None:
     # =====================================================
 
     st.markdown(
-        '<div class="section-title">⚙️ Model Processing</div>',
+        '<div class="section-title">'
+        '⚙️ Model Processing'
+        '</div>',
         unsafe_allow_html=True
     )
 
     col1, col2, col3 = st.columns(3)
 
-
     with col1:
 
-        st.markdown(
-            """
-            <div class="processing-card">
-                <div class="processing-label">
-                    Input Type
-                </div>
-                <div class="processing-value">
-                    EL Image
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
+        st.metric(
+            label="Input Type",
+            value="EL Image"
         )
-
 
     with col2:
 
-        st.markdown(
-            """
-            <div class="processing-card">
-                <div class="processing-label">
-                    Model Input
-                </div>
-                <div class="processing-value">
-                    224 × 224
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
+        st.metric(
+            label="Model Input",
+            value="224 × 224"
         )
-
 
     with col3:
 
-        st.markdown(
-            """
-            <div class="processing-card">
-                <div class="processing-label">
-                    Channels
-                </div>
-                <div class="processing-value">
-                    Grayscale → RGB
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
+        st.metric(
+            label="Channels",
+            value="Grayscale → RGB"
         )
 
-
     st.caption(
-        "The uploaded EL image is converted to grayscale, resized "
-        "to 224 × 224 pixels, converted to RGB channels, and "
-        "preprocessed before being passed to the MobileNetV2 model."
+        "The uploaded EL image is first validated using "
+        "the binary EL-image validator. Accepted EL images "
+        "are then converted to grayscale, resized to "
+        "224 × 224 pixels, converted to RGB channels, and "
+        "preprocessed before being passed to the "
+        "SolarGuard MobileNetV2 model."
     )
+
 
 # =========================================================
 # MODEL INFORMATION
 # =========================================================
 
 st.markdown(
-    '<div class="section-title">🧠 Model Information</div>',
+    '<div class="section-title">'
+    '🧠 Model Information'
+    '</div>',
     unsafe_allow_html=True
 )
 
 col1, col2 = st.columns(2)
 
 with col1:
+
     st.markdown(
         """
         **Dataset:** ELPV Dataset
 
-        **Model:** MobileNetV2
+        **Primary Model:** MobileNetV2
 
         **Input:** Electroluminescence (EL) Image
-        """,
-        unsafe_allow_html=True
+        """
     )
 
 with col2:
+
     st.markdown(
         """
         **Image Size:** 224 × 224
@@ -661,15 +1450,14 @@ with col2:
         **Output Classes:** 4
 
         **Task:** Image Classification
-        """,
-        unsafe_allow_html=True
+        """
     )
 
 st.caption(
-    "SolarGuard AI uses a transfer-learning-based MobileNetV2 "
-    "model trained on EL images to classify defect-probability assessments."
+    "SolarGuard AI uses a binary EL-image validator "
+    "followed by a transfer-learning-based MobileNetV2 "
+    "model for four-class defect-probability assessment."
 )
-
 
 
 # =========================================================
@@ -677,38 +1465,50 @@ st.caption(
 # =========================================================
 
 st.markdown(
-    '<div class="section-title">☀️ About SolarGuard AI</div>',
+    '<div class="section-title">'
+    '☀️ About SolarGuard AI'
+    '</div>',
     unsafe_allow_html=True
 )
 
-st.markdown(
-    """
-    <div class="description" style="text-align: left;">
-        <b>SolarGuard AI</b> is an image-based solar cell inspection
-        prototype that uses electroluminescence (EL) images and a
-        MobileNetV2 transfer-learning model to classify images into
-        four defect-probability assessment classes.
-    </div>
-    """,
-    unsafe_allow_html=True
+st.write(
+    "**SolarGuard AI** is an image-based solar cell "
+    "inspection prototype that uses electroluminescence "
+    "(EL) images and MobileNetV2 transfer learning. "
+    "A binary validation model first checks whether the "
+    "uploaded image resembles an EL image. Accepted "
+    "images are then analyzed by the four-class SolarGuard "
+    "model and supported with AI-assisted explanation "
+    "and suspicious-region localization."
 )
 
 
 # =========================================================
-# MODEL LIMITATION
+# LIMITATIONS
 # =========================================================
 
 st.markdown(
-    '<div class="section-title">⚠️ Model Limitation</div>',
+    '<div class="section-title">'
+    '⚠️ Model Limitations'
+    '</div>',
     unsafe_allow_html=True
 )
 
 st.warning(
-    "This prototype is intended for research and demonstration "
-    "purposes. Predictions are model outputs and should not be "
-    "treated as a replacement for professional solar-cell inspection. "
-    "Performance may vary when images come from different sources, "
-    "devices, or operating conditions."
+    "This prototype is intended for research and "
+    "demonstration purposes. The EL-image validator was "
+    "trained using ELPV EL images and a collection of "
+    "unrelated Non-EL images, so its real-world "
+    "generalization requires further testing. The "
+    "validator threshold is a prototype threshold and "
+    "is not a calibrated probability. The four-class "
+    "SolarGuard model predicts defect-probability "
+    "assessment classes rather than physical defect "
+    "severity or future failure. Explanation heatmaps "
+    "and suspicious-region localization are AI-assisted "
+    "indicators, not confirmed physical defect "
+    "boundaries. Model predictions should not replace "
+    "professional solar-cell inspection."
 )
 
 
@@ -719,9 +1519,8 @@ st.warning(
 st.markdown(
     """
     <div class="footer">
-        SolarGuard AI • Image-Based Solar Cell Defect Inspection
+        SolarGuard AI • Explainable AI-Assisted Solar EL Inspection
     </div>
     """,
     unsafe_allow_html=True
 )
-
