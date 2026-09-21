@@ -1,6 +1,8 @@
 import streamlit as st
 import tensorflow as tf
 import numpy as np
+import cv2
+
 from PIL import Image
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 
@@ -145,6 +147,136 @@ model = load_model()
 
 
 # =========================================================
+# GRAD-CAM
+# =========================================================
+
+def generate_gradcam(model, image_array, predicted_class):
+
+    # Your MobileNetV2 base model
+    base_model = model.layers[1]
+
+    # Find the last Conv2D layer inside MobileNetV2
+    last_conv_layer = None
+
+    for layer in reversed(base_model.layers):
+        if isinstance(layer, tf.keras.layers.Conv2D):
+            last_conv_layer = layer
+            break
+
+    if last_conv_layer is None:
+        raise ValueError("Could not find a convolutional layer.")
+
+    # Model that gives us:
+    # 1. feature maps from the last convolutional layer
+    # 2. final MobileNetV2 output
+    feature_model = tf.keras.models.Model(
+        inputs=base_model.input,
+        outputs=[
+            last_conv_layer.output,
+            base_model.output
+        ]
+    )
+
+    with tf.GradientTape() as tape:
+
+        conv_outputs, base_output = feature_model(
+            image_array,
+            training=False
+        )
+
+        # Pass MobileNetV2 output through the classifier layers
+        x = base_output
+
+        for layer in model.layers[2:]:
+            x = layer(x, training=False)
+
+        predictions = x
+
+        class_output = predictions[:, predicted_class]
+
+    # Calculate gradients
+    gradients = tape.gradient(
+        class_output,
+        conv_outputs
+    )
+
+    # Average gradients across spatial dimensions
+    pooled_gradients = tf.reduce_mean(
+        gradients,
+        axis=(1, 2)
+    )
+
+    # Remove batch dimension
+    conv_outputs = conv_outputs[0]
+    pooled_gradients = pooled_gradients[0]
+
+    # Weight feature maps by their gradients
+    heatmap = tf.reduce_sum(
+        conv_outputs * pooled_gradients,
+        axis=-1
+    )
+
+    # Keep only positive values
+    heatmap = tf.maximum(
+        heatmap,
+        0
+    )
+
+    # Normalize between 0 and 1
+    max_value = tf.reduce_max(heatmap)
+
+    if max_value > 0:
+        heatmap /= max_value
+
+    return heatmap.numpy()
+
+
+def create_gradcam_overlay(original_image, heatmap):
+    """
+    Overlay the Grad-CAM heatmap on the original EL image.
+    """
+
+    # Convert PIL image to RGB
+    original = np.array(
+        original_image.convert("RGB")
+    )
+
+    # Resize heatmap to original image size
+    heatmap = cv2.resize(
+        heatmap,
+        (original.shape[1], original.shape[0])
+    )
+
+    # Convert heatmap to 0-255
+    heatmap = np.uint8(
+        255 * heatmap
+    )
+
+    # Apply color map
+    heatmap = cv2.applyColorMap(
+        heatmap,
+        cv2.COLORMAP_JET
+    )
+
+    # Convert BGR → RGB
+    heatmap = cv2.cvtColor(
+        heatmap,
+        cv2.COLOR_BGR2RGB
+    )
+
+    # Blend original image and heatmap
+    overlay = cv2.addWeighted(
+        original,
+        0.55,
+        heatmap,
+        0.45,
+        0
+    )
+
+    return overlay
+
+
+# =========================================================
 # CLASS NAMES
 # =========================================================
 
@@ -272,6 +404,29 @@ if uploaded_file is not None:
         float(predictions[0][predicted_class]) * 100
     )
 
+        # =====================================================
+    # GRAD-CAM EXPLANATION
+    # =====================================================
+
+    try:
+        heatmap = generate_gradcam(
+            model,
+            image_array,
+            predicted_class
+        )
+
+        gradcam_image = create_gradcam_overlay(
+            image,
+            heatmap
+        )
+
+    except Exception as e:
+        heatmap = None
+        gradcam_image = None
+        st.warning(
+            f"Grad-CAM explanation could not be generated: {e}"
+        )
+
 
     # =====================================================
     # INSPECTION RESULT
@@ -382,6 +537,27 @@ if uploaded_file is not None:
 
         st.progress(
             float(predictions[0][i])
+        )
+        # =====================================================
+    # GRAD-CAM EXPLANATION
+    # =====================================================
+
+    if gradcam_image is not None:
+
+        st.markdown(
+            '<div class="section-title">🔎 Grad-CAM Explanation</div>',
+            unsafe_allow_html=True
+        )
+
+        st.write(
+            "The highlighted regions show areas of the EL image "
+            "that contributed more strongly to the model's prediction."
+        )
+
+        st.image(
+            gradcam_image,
+            caption="Grad-CAM: Model attention visualization",
+            use_container_width=True
         )
 
 
